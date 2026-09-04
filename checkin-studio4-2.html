@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Studio4 - Check-in</title>
+<style>
+  :root{
+    --bg:#f4f3ee; --card:#ffffff; --border:#e2e0d6; --text:#1f1e1b;
+    --muted:#6b6a63; --accent:#1f6f5c; --accent-dark:#154f41; --danger:#b3442f;
+    --warn:#b3771f; --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  body{min-height:100vh;padding:24px;}
+  .wrap{max-width:520px;margin:0 auto;}
+  .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;}
+  .brand{font-size:20px;font-weight:600;}
+  .brand span{color:var(--accent);}
+  .switch{font-size:13px;color:var(--muted);text-decoration:underline;cursor:pointer;background:none;border:none;padding:0;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+    padding:24px;margin-bottom:16px;}
+  h2{font-size:17px;margin:0 0 4px;font-weight:600;}
+  p.hint{color:var(--muted);font-size:13px;margin:0 0 16px;}
+  label{display:block;font-size:13px;font-weight:600;color:var(--muted);margin-bottom:6px;margin-top:14px;}
+  select,input[type=text],input[type=password],input[type=time]{
+    width:100%;padding:12px 14px;font-size:16px;border:1px solid var(--border);
+    border-radius:10px;background:#fff;color:var(--text);appearance:none;
+  }
+  button.primary{width:100%;padding:16px;font-size:17px;font-weight:600;color:#fff;
+    background:var(--accent);border:none;border-radius:12px;margin-top:20px;cursor:pointer;}
+  button.primary:active{background:var(--accent-dark);}
+  button.secondary{padding:10px 14px;font-size:14px;font-weight:600;color:var(--accent);
+    background:#eef4f1;border:1px solid #d5e5de;border-radius:10px;cursor:pointer;}
+  button.small{padding:6px 10px;font-size:12px;border-radius:8px;border:1px solid var(--border);background:#fff;cursor:pointer;}
+  .name-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px;}
+  .name-btn{padding:16px 10px;text-align:center;border:1px solid var(--border);border-radius:12px;
+    background:#fff;font-size:16px;cursor:pointer;font-weight:500;}
+  .name-btn:active{background:#eef4f1;border-color:var(--accent);}
+  .confirm{text-align:center;padding:30px 10px;}
+  .confirm .check{width:56px;height:56px;border-radius:50%;background:var(--accent);color:#fff;
+    display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 16px;}
+  .confirm .time{font-size:32px;font-weight:700;margin:6px 0;}
+  .confirm .who{font-size:16px;color:var(--muted);}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--border);}
+  th{color:var(--muted);font-weight:600;font-size:12px;}
+  .row-flex{display:flex;gap:8px;align-items:center;}
+  .row-flex input{flex:1;}
+  .metrics{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}
+  .metric{background:#f7f6f1;border-radius:10px;padding:12px;text-align:center;}
+  .metric .num{font-size:22px;font-weight:700;}
+  .metric .lbl{font-size:11px;color:var(--muted);}
+  a.export{display:inline-block;margin-top:12px;font-size:13px;color:var(--accent);text-decoration:none;font-weight:600;}
+  .err{color:var(--danger);font-size:13px;margin-top:8px;}
+  .empty{color:var(--muted);font-size:13px;text-align:center;padding:20px 0;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand">Studio4 <span>check-in</span></div>
+    <button class="switch" id="modeSwitch">Modo operaciones</button>
+  </div>
+  <div id="app"></div>
+</div>
+
+<script>
+const $ = (sel, root=document) => root.querySelector(sel);
+const pad = n => String(n).padStart(2,'0');
+const todayKey = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+};
+const fmtTime = iso => {
+  const d = new Date(iso);
+  let h = d.getHours(), m = d.getMinutes();
+  const ap = h >= 12 ? 'PM' : 'AM';
+  h = h % 12; if(h===0) h = 12;
+  return `${h}:${pad(m)} ${ap}`;
+};
+
+const DEFAULT_CONFIG = {
+  teachers: ['Riccardo','Mai','Liubka','Juls','Reina','Karen','Pili','Anoushka'],
+  adminPin: '1234',
+  opsEmail: 'operaciones@studio4.com'
+};
+
+let config = null;
+let view = 'checkin';
+let checkinDone = null;
+
+async function loadConfig(){
+  try{
+    const res = await window.storage.get('config', true);
+    config = JSON.parse(res.value);
+  }catch(e){
+    config = DEFAULT_CONFIG;
+    await window.storage.set('config', JSON.stringify(config), true);
+  }
+}
+async function saveConfig(){
+  await window.storage.set('config', JSON.stringify(config), true);
+}
+async function getCheckins(dateKey){
+  try{
+    const res = await window.storage.get('checkins:'+dateKey, true);
+    return JSON.parse(res.value);
+  }catch(e){
+    return [];
+  }
+}
+async function addCheckin(entry){
+  const key = 'checkins:'+todayKey();
+  const list = await getCheckins(todayKey());
+  const already = list.find(e => e.name === entry.name);
+  if(already){
+    checkinDone = { name: entry.name, time: already.time, already:true };
+    return;
+  }
+  list.push(entry);
+  await window.storage.set(key, JSON.stringify(list), true);
+  checkinDone = entry;
+}
+
+function dateToKey(d){
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+function keyToDate(key){
+  const [y,m,d] = key.split('-').map(Number);
+  return new Date(y, m-1, d);
+}
+function eachDateKeyInRange(startKey, endKey){
+  const start = keyToDate(startKey);
+  const end = keyToDate(endKey);
+  const keys = [];
+  const cur = new Date(start);
+  while(cur <= end){
+    keys.push(dateToKey(cur));
+    cur.setDate(cur.getDate()+1);
+  }
+  return keys;
+}
+async function getCheckinsInRange(startKey, endKey, teacherFilter){
+  const keys = eachDateKeyInRange(startKey, endKey);
+  const rows = [];
+  for(const key of keys){
+    const list = await getCheckins(key);
+    list.forEach(e => {
+      if(!teacherFilter || e.name === teacherFilter){
+        rows.push({ date: key, name: e.name, time: e.time });
+      }
+    });
+  }
+  return rows;
+}
+
+async function render(){
+  const app = $('#app');
+  if(!config) await loadConfig();
+
+  if(view === 'checkin'){
+    app.innerHTML = renderCheckin();
+    attachCheckinHandlers();
+  } else if(view === 'admin-login'){
+    app.innerHTML = renderAdminLogin();
+    attachAdminLoginHandlers();
+  } else if(view === 'admin'){
+    app.innerHTML = await renderAdminDashboard();
+    attachAdminHandlers();
+  }
+}
+
+function renderCheckin(){
+  if(checkinDone){
+    return `
+    <div class="card confirm">
+      <div class="check">&#10003;</div>
+      <div class="who">${checkinDone.name}</div>
+      <div class="time">${fmtTime(checkinDone.time)}</div>
+      <p class="hint">${checkinDone.already ? 'Ya tenías un check-in registrado hoy' : 'Check-in registrado'}</p>
+      <button class="primary" id="doneBtn">Listo</button>
+    </div>`;
+  }
+  return `
+  <div class="card">
+    <h2>¿Cuál es tu nombre?</h2>
+    <p class="hint">Toca tu nombre para registrar tu llegada</p>
+    <div class="name-grid">
+      ${config.teachers.map(t => `<div class="name-btn" data-name="${t}">${t}</div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function attachCheckinHandlers(){
+  document.querySelectorAll('[data-name]').forEach(el=>{
+    el.addEventListener('click', async ()=>{
+      await addCheckin({ name: el.dataset.name, time: new Date().toISOString() });
+      render();
+    });
+  });
+  const done = $('#doneBtn');
+  if(done) done.addEventListener('click', ()=>{ checkinDone = null; render(); });
+}
+
+function renderAdminLogin(){
+  return `
+  <div class="card">
+    <h2>Acceso operaciones</h2>
+    <p class="hint">Ingresa el PIN para ver el reporte</p>
+    <input type="password" id="pinInput" placeholder="PIN" inputmode="numeric">
+    <div id="pinErr" class="err" style="display:none;">PIN incorrecto</div>
+    <button class="primary" id="pinSubmit">Entrar</button>
+  </div>`;
+}
+function attachAdminLoginHandlers(){
+  $('#pinSubmit').addEventListener('click', ()=>{
+    const val = $('#pinInput').value.trim();
+    if(val === config.adminPin){
+      view = 'admin';
+      render();
+    } else {
+      $('#pinErr').style.display = 'block';
+    }
+  });
+}
+
+async function renderAdminDashboard(){
+  const date = $('#dateInput') ? $('#dateInput').value : todayKey();
+  const list = await getCheckins(date);
+  const total = config.teachers.length;
+  const checkedIn = list.length;
+  const missing = config.teachers.filter(t => !list.some(e => e.name === t));
+  const rows = list.slice().sort((a,b)=> new Date(a.time)-new Date(b.time));
+
+  return `
+  <div class="card">
+    <div class="row-flex">
+      <div style="flex:1;">
+        <label style="margin-top:0;">Fecha</label>
+        <input type="date" id="dateInput" value="${date}">
+      </div>
+      <button class="secondary" id="loadDate" style="margin-top:19px;">Ver</button>
+    </div>
+  </div>
+
+  <div class="metrics">
+    <div class="metric"><div class="num">${checkedIn}/${total}</div><div class="lbl">llegaron</div></div>
+    <div class="metric"><div class="num">${missing.length}</div><div class="lbl">sin check-in</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Check-ins del día</h2>
+    <p class="hint">Compara cada hora contra el horario de clases de esa persona ese día.</p>
+    ${rows.length === 0 ? '<div class="empty">Nadie ha hecho check-in aún</div>' : `
+    <table>
+      <tr><th>Maestro</th><th>Hora de llegada</th></tr>
+      ${rows.map(e => `<tr>
+        <td>${e.name}</td>
+        <td>${fmtTime(e.time)}</td>
+      </tr>`).join('')}
+    </table>`}
+    ${missing.length ? `<p class="hint" style="margin-top:14px;color:var(--warn);"><strong>Sin check-in:</strong> ${missing.join(', ')}</p>` : ''}
+    <a href="#" class="export" id="exportCsv">Exportar CSV</a>
+    <a href="#" class="export" id="emailSummary" style="margin-left:16px;">Enviar resumen por email</a>
+  </div>
+
+  <div class="card">
+    <h2>Reporte por periodo</h2>
+    <p class="hint">Descarga un CSV con todos los check-ins entre dos fechas, de un maestro o de todos.</p>
+    <div class="row-flex">
+      <div style="flex:1;">
+        <label style="margin-top:0;">Desde</label>
+        <input type="date" id="rangeStart" value="${date}">
+      </div>
+      <div style="flex:1;">
+        <label style="margin-top:0;">Hasta</label>
+        <input type="date" id="rangeEnd" value="${date}">
+      </div>
+    </div>
+    <label>Maestro</label>
+    <select id="rangeTeacher">
+      <option value="">Todos</option>
+      ${config.teachers.map(t => `<option value="${t}">${t}</option>`).join('')}
+    </select>
+    <div class="row-flex" style="margin-top:14px;">
+      <button class="secondary" id="rangeThisWeek" style="flex:1;">Esta semana</button>
+      <button class="secondary" id="rangeThisMonth" style="flex:1;">Este mes</button>
+    </div>
+    <button class="primary" id="downloadRange">Descargar reporte CSV</button>
+    <div id="rangeErr" class="err" style="display:none;">La fecha "desde" debe ser antes que "hasta"</div>
+  </div>
+
+  <div class="card">
+    <h2>Configuración</h2>
+    <label>Correo de operaciones para el resumen</label>
+    <input type="text" id="opsEmail" value="${config.opsEmail}">
+    <button class="secondary" id="saveEmail" style="margin-top:10px;">Guardar correo</button>
+
+    <label>Maestros</label>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">
+      ${config.teachers.map(t => `<span style="display:flex;align-items:center;gap:6px;background:#eef1ee;border:1px solid var(--border);border-radius:20px;padding:6px 6px 6px 12px;font-size:13px;">${t} <button data-del-teacher="${t}" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;">&times;</button></span>`).join('')}
+    </div>
+    <div class="row-flex" style="margin-top:10px;">
+      <input type="text" id="newTeacherName" placeholder="Nombre del maestro">
+      <button class="small" id="addTeacher">Agregar</button>
+    </div>
+
+    <label>Cambiar PIN de acceso</label>
+    <div class="row-flex">
+      <input type="text" id="newPin" placeholder="Nuevo PIN">
+      <button class="small" id="savePin">Guardar</button>
+    </div>
+  </div>
+  `;
+}
+
+function attachAdminHandlers(){
+  const loadBtn = $('#loadDate');
+  if(loadBtn) loadBtn.addEventListener('click', render);
+
+  const exportBtn = $('#exportCsv');
+  if(exportBtn) exportBtn.addEventListener('click', async (ev)=>{
+    ev.preventDefault();
+    const date = $('#dateInput').value;
+    const list = await getCheckins(date);
+    let csv = 'Maestro,Hora\n';
+    list.forEach(e => { csv += `${e.name},${fmtTime(e.time)}\n`; });
+    const blob = new Blob([csv], {type:'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `checkins-${date}.csv`; a.click();
+  });
+
+  const emailBtn = $('#emailSummary');
+  if(emailBtn) emailBtn.addEventListener('click', async (ev)=>{
+    ev.preventDefault();
+    const date = $('#dateInput').value;
+    const list = await getCheckins(date);
+    const missing = config.teachers.filter(t => !list.some(e => e.name === t));
+    let body = `Resumen de check-in Studio4 - ${date}%0D%0A%0D%0A`;
+    list.slice().sort((a,b)=> new Date(a.time)-new Date(b.time)).forEach(e=>{
+      body += `${e.name}: ${fmtTime(e.time)}%0D%0A`;
+    });
+    if(missing.length){
+      body += `%0D%0ASin check-in: ${missing.join(', ')}`;
+    }
+    window.location.href = `mailto:${config.opsEmail}?subject=Reporte%20check-in%20${date}&body=${body}`;
+  });
+
+  const rangeThisWeek = $('#rangeThisWeek');
+  if(rangeThisWeek) rangeThisWeek.addEventListener('click', ()=>{
+    const now = new Date();
+    const day = now.getDay();
+    const diffToMonday = (day === 0 ? -6 : 1) - day;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + diffToMonday);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    $('#rangeStart').value = dateToKey(monday);
+    $('#rangeEnd').value = dateToKey(sunday);
+  });
+
+  const rangeThisMonth = $('#rangeThisMonth');
+  if(rangeThisMonth) rangeThisMonth.addEventListener('click', ()=>{
+    const now = new Date();
+    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    const last = new Date(now.getFullYear(), now.getMonth()+1, 0);
+    $('#rangeStart').value = dateToKey(first);
+    $('#rangeEnd').value = dateToKey(last);
+  });
+
+  const downloadRange = $('#downloadRange');
+  if(downloadRange) downloadRange.addEventListener('click', async ()=>{
+    const start = $('#rangeStart').value;
+    const end = $('#rangeEnd').value;
+    const teacher = $('#rangeTeacher').value;
+    const errEl = $('#rangeErr');
+    if(!start || !end || keyToDate(start) > keyToDate(end)){
+      errEl.style.display = 'block';
+      return;
+    }
+    errEl.style.display = 'none';
+    const rows = await getCheckinsInRange(start, end, teacher);
+    let csv = 'Fecha,Maestro,Hora\n';
+    rows.sort((a,b) => a.date.localeCompare(b.date) || new Date(a.time)-new Date(b.time));
+    rows.forEach(r => { csv += `${r.date},${r.name},${fmtTime(r.time)}\n`; });
+
+    csv += '\nTotales por maestro\n';
+    const totals = {};
+    rows.forEach(r => { totals[r.name] = (totals[r.name]||0)+1; });
+    Object.keys(totals).sort().forEach(name => {
+      csv += `${name},${totals[name]} check-ins\n`;
+    });
+
+    const blob = new Blob([csv], {type:'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const label = teacher ? teacher.replace(/\s+/g,'-') : 'todos';
+    a.href = url; a.download = `reporte-${label}-${start}_a_${end}.csv`; a.click();
+  });
+
+  const saveEmail = $('#saveEmail');
+  if(saveEmail) saveEmail.addEventListener('click', async ()=>{
+    config.opsEmail = $('#opsEmail').value.trim();
+    await saveConfig();
+    render();
+  });
+
+  document.querySelectorAll('[data-del-teacher]').forEach(el=>{
+    el.addEventListener('click', async ()=>{
+      const name = el.dataset.delTeacher;
+      config.teachers = config.teachers.filter(t => t !== name);
+      await saveConfig();
+      render();
+    });
+  });
+  const addTeacher = $('#addTeacher');
+  if(addTeacher) addTeacher.addEventListener('click', async ()=>{
+    const name = $('#newTeacherName').value.trim();
+    if(name && !config.teachers.includes(name)){
+      config.teachers.push(name);
+      await saveConfig();
+      render();
+    }
+  });
+
+  const savePin = $('#savePin');
+  if(savePin) savePin.addEventListener('click', async ()=>{
+    const val = $('#newPin').value.trim();
+    if(val){
+      config.adminPin = val;
+      await saveConfig();
+      $('#newPin').value = '';
+      alert('PIN actualizado');
+    }
+  });
+}
+
+$('#modeSwitch').addEventListener('click', ()=>{
+  if(view === 'checkin'){
+    view = 'admin-login';
+    $('#modeSwitch').textContent = 'Modo check-in';
+  } else {
+    view = 'checkin';
+    checkinDone = null;
+    $('#modeSwitch').textContent = 'Modo operaciones';
+  }
+  render();
+});
+
+render();
+</script>
+</body>
+</html>
