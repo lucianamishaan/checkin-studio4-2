@@ -111,7 +111,7 @@ async function loadConfig(){
   try{
     const doc = await db.collection('studio4').doc('config').get();
     if(doc.exists){
-      config = doc.data();
+      config = Object.assign({}, DEFAULT_CONFIG, doc.data());
     } else {
       config = DEFAULT_CONFIG;
       await db.collection('studio4').doc('config').set(config);
