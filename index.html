@@ -97,8 +97,11 @@ const fmtTime = iso => {
 const DEFAULT_CONFIG = {
   teachers: ['Riccardo','Mai','Liubka','Juls','Reina','Karen','Pili','Anoushka'],
   adminPin: '1234',
-  opsEmail: 'operaciones@studio4.com'
+  opsEmail: 'operaciones@studio4.com',
+  devicePasscode: '4321'
 };
+
+const DEVICE_UNLOCK_KEY = 'studio4_device_unlocked';
 
 let config = null;
 let view = 'checkin';
@@ -178,6 +181,13 @@ async function render(){
   const app = $('#app');
   if(!config) await loadConfig();
 
+  const unlocked = localStorage.getItem(DEVICE_UNLOCK_KEY) === 'true';
+  if(view === 'checkin' && !unlocked){
+    app.innerHTML = renderDeviceLock();
+    attachDeviceLockHandlers();
+    return;
+  }
+
   if(view === 'checkin'){
     app.innerHTML = renderCheckin();
     attachCheckinHandlers();
@@ -188,6 +198,28 @@ async function render(){
     app.innerHTML = await renderAdminDashboard();
     attachAdminHandlers();
   }
+}
+
+function renderDeviceLock(){
+  return `
+  <div class="card">
+    <h2>Activar este iPad</h2>
+    <p class="hint">Ingresa el código del estudio para habilitar el check-in en este dispositivo. Solo se pide una vez.</p>
+    <input type="password" id="deviceCodeInput" placeholder="Código" inputmode="numeric">
+    <div id="deviceCodeErr" class="err" style="display:none;">Código incorrecto</div>
+    <button class="primary" id="deviceCodeSubmit">Activar</button>
+  </div>`;
+}
+function attachDeviceLockHandlers(){
+  $('#deviceCodeSubmit').addEventListener('click', ()=>{
+    const val = $('#deviceCodeInput').value.trim();
+    if(val === config.devicePasscode){
+      localStorage.setItem(DEVICE_UNLOCK_KEY, 'true');
+      render();
+    } else {
+      $('#deviceCodeErr').style.display = 'block';
+    }
+  });
 }
 
 function renderCheckin(){
@@ -325,11 +357,19 @@ async function renderAdminDashboard(){
       <button class="small" id="addTeacher">Agregar</button>
     </div>
 
-    <label>Cambiar PIN de acceso</label>
+    <label>Cambiar PIN de acceso (operaciones)</label>
     <div class="row-flex">
       <input type="text" id="newPin" placeholder="Nuevo PIN">
       <button class="small" id="savePin">Guardar</button>
     </div>
+
+    <label>Código de activación para iPads nuevos</label>
+    <p class="hint" style="margin-bottom:8px;">Este es el código que se pide una sola vez en cada iPad de salón para habilitar el check-in.</p>
+    <div class="row-flex">
+      <input type="text" id="newDeviceCode" placeholder="${config.devicePasscode}">
+      <button class="small" id="saveDeviceCode">Guardar</button>
+    </div>
+    <button class="secondary" id="lockThisDevice" style="margin-top:10px;">Bloquear el check-in en este dispositivo</button>
   </div>
   `;
 }
@@ -453,6 +493,23 @@ function attachAdminHandlers(){
       $('#newPin').value = '';
       alert('PIN actualizado');
     }
+  });
+
+  const saveDeviceCode = $('#saveDeviceCode');
+  if(saveDeviceCode) saveDeviceCode.addEventListener('click', async ()=>{
+    const val = $('#newDeviceCode').value.trim();
+    if(val){
+      config.devicePasscode = val;
+      await saveConfig();
+      $('#newDeviceCode').value = '';
+      alert('Código de activación actualizado. Los iPads ya activados no se ven afectados; solo aplica a iPads nuevos.');
+    }
+  });
+
+  const lockThisDevice = $('#lockThisDevice');
+  if(lockThisDevice) lockThisDevice.addEventListener('click', ()=>{
+    localStorage.removeItem(DEVICE_UNLOCK_KEY);
+    alert('Este dispositivo quedó bloqueado. La próxima vez que se abra en modo check-in, pedirá el código de activación.');
   });
 }
 
