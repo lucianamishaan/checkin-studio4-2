@@ -56,6 +56,8 @@
   .err{color:var(--danger);font-size:13px;margin-top:8px;}
   .empty{color:var(--muted);font-size:13px;text-align:center;padding:20px 0;}
 </style>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -67,6 +69,17 @@
 </div>
 
 <script>
+const firebaseConfig = {
+  apiKey: "AIzaSyAIdZ4y6CWNgfu1HM3ZdIsrsUj-T_5hQW4",
+  authDomain: "studio4-checkin.firebaseapp.com",
+  projectId: "studio4-checkin",
+  storageBucket: "studio4-checkin.firebasestorage.app",
+  messagingSenderId: "801556161682",
+  appId: "1:801556161682:web:bdc8d3c9b31ab68769324b"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
 const $ = (sel, root=document) => root.querySelector(sel);
 const pad = n => String(n).padStart(2,'0');
 const todayKey = () => {
@@ -93,26 +106,31 @@ let checkinDone = null;
 
 async function loadConfig(){
   try{
-    const res = await window.storage.get('config', true);
-    config = JSON.parse(res.value);
+    const doc = await db.collection('studio4').doc('config').get();
+    if(doc.exists){
+      config = doc.data();
+    } else {
+      config = DEFAULT_CONFIG;
+      await db.collection('studio4').doc('config').set(config);
+    }
   }catch(e){
+    console.error('Error cargando config, usando valores por default', e);
     config = DEFAULT_CONFIG;
-    await window.storage.set('config', JSON.stringify(config), true);
   }
 }
 async function saveConfig(){
-  await window.storage.set('config', JSON.stringify(config), true);
+  await db.collection('studio4').doc('config').set(config);
 }
 async function getCheckins(dateKey){
   try{
-    const res = await window.storage.get('checkins:'+dateKey, true);
-    return JSON.parse(res.value);
+    const doc = await db.collection('checkins').doc(dateKey).get();
+    return doc.exists ? (doc.data().list || []) : [];
   }catch(e){
+    console.error('Error leyendo checkins', e);
     return [];
   }
 }
 async function addCheckin(entry){
-  const key = 'checkins:'+todayKey();
   const list = await getCheckins(todayKey());
   const already = list.find(e => e.name === entry.name);
   if(already){
@@ -120,7 +138,7 @@ async function addCheckin(entry){
     return;
   }
   list.push(entry);
-  await window.storage.set(key, JSON.stringify(list), true);
+  await db.collection('checkins').doc(todayKey()).set({ list });
   checkinDone = entry;
 }
 
